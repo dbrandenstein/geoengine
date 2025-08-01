@@ -477,6 +477,30 @@ pub fn reproject_query<S: AxisAlignedRectangle, T: QueryAttributeSelection>(
     }))
 }
 
+/// this method performs the transformation of a query rectangle in `target` projection
+/// to a new query rectangle with coordinates in the `source` projection without clipping by the
+/// intersection of area of uses
+pub fn reproject_query_without_clipping<S: AxisAlignedRectangle, T: QueryAttributeSelection>(
+    query: QueryRectangle<S, T>,
+    source: SpatialReference,
+    target: SpatialReference,
+) -> Result<Option<QueryRectangle<S, T>>> {
+    let (Some(s_bbox), Some(p_bbox)) =
+        reproject_and_unify_bbox_without_clipping(query.spatial_bounds, target, source)?
+    else {
+        return Ok(None);
+    };
+
+    let p_spatial_resolution =
+        suggest_pixel_size_from_diag_cross_projected(s_bbox, p_bbox, query.spatial_resolution)?;
+    Ok(Some(QueryRectangle {
+        spatial_bounds: p_bbox,
+        spatial_resolution: p_spatial_resolution,
+        time_interval: query.time_interval,
+        attributes: query.attributes,
+    }))
+}
+
 /// Reproject a bounding box to the `target` projection and return the input and output bounding box
 /// as a pair where both elements cover the same area of the original `source_bbox` in WGS84.
 /// The pair is structured as `(source_bbox_clipped, target_bbox_clipped)`
@@ -493,6 +517,27 @@ pub fn reproject_and_unify_bbox<T: AxisAlignedRectangle>(
     if let Some(target_b) = target_bbox_clipped {
         let source_bbox_clipped = target_b.reproject(&proj_to_from)?;
         Ok((Some(source_bbox_clipped), target_bbox_clipped))
+    } else {
+        Ok((None, None))
+    }
+}
+
+/// Reproject a bounding box to the `target` projection and return the input and output bounding box
+/// as a pair where both elements cover the same area of the original `source_bbox` in WGS84.
+/// The pair is structured as `(source_bbox, target_bbox)`
+pub fn reproject_and_unify_bbox_without_clipping<T: AxisAlignedRectangle>(
+    source_bbox: T,
+    source: SpatialReference,
+    target: SpatialReference,
+) -> Result<(Option<T>, Option<T>)> {
+    let proj_from_to = CoordinateProjector::from_known_srs(source, target)?;
+    let proj_to_from = CoordinateProjector::from_known_srs(target, source)?;
+
+    let target_bbox_clipped = source_bbox.reproject(&proj_from_to);
+
+    if let Ok(target_b) = target_bbox_clipped {
+        let source_bbox_clipped = target_b.reproject(&proj_to_from)?;
+        Ok((Some(source_bbox_clipped), Some(target_b)))
     } else {
         Ok((None, None))
     }

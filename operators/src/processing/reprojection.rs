@@ -19,11 +19,12 @@ use crate::{
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::{StreamExt, stream};
+use geoengine_datatypes::operations::reproject::reproject_query_without_clipping;
 use geoengine_datatypes::{
     collections::FeatureCollection,
     operations::reproject::{
         CoordinateProjection, CoordinateProjector, Reproject, ReprojectClipped,
-        reproject_and_unify_bbox, reproject_query, suggest_pixel_size_from_diag_cross_projected,
+        reproject_and_unify_bbox, suggest_pixel_size_from_diag_cross_projected,
     },
     primitives::{
         BandSelection, BoundingBox2D, ColumnSelection, Geometry, RasterQueryRectangle,
@@ -250,7 +251,10 @@ impl InitializedVectorOperator for InitializedVectorReprojection {
                 MapQueryProcessor::new(
                     source,
                     self.result_descriptor.clone(),
-                    move |query| reproject_query(query, source_srs, target_srs).map_err(From::from),
+                    move |query| {
+                        reproject_query_without_clipping(query, source_srs, target_srs)
+                            .map_err(From::from)
+                    },
                     (),
                 )
                 .boxed(),
@@ -355,7 +359,7 @@ where
         query: VectorQueryRectangle,
         ctx: &'a dyn QueryContext,
     ) -> Result<BoxStream<'a, Result<Self::Output>>> {
-        let rewritten_query = reproject_query(query, self.from, self.to)?;
+        let rewritten_query = reproject_query_without_clipping(query, self.from, self.to)?;
 
         if let Some(rewritten_query) = rewritten_query {
             Ok(self
